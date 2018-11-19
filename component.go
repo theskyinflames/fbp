@@ -30,6 +30,7 @@ func (c *Component) ConnectInPort(port Port) {
 			case informationPackage, ok := <-port.In:
 				if !ok {
 					c.logger.Info("port in close", zap.String("id", port.ID))
+					break
 				}
 				c.Stream(informationPackage)
 			}
