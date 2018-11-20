@@ -10,13 +10,23 @@ type Task interface {
 	Do(in *InformationPackage) (out *InformationPackage, err error)
 }
 
+func NewComponent(ctx context.Context, in []Port, out []Port, task Task, errorHandler ErrorHandler, logger *zap.Logger) *Component {
+	return &Component{
+		ctx:          ctx,
+		in:           in,
+		out:          out,
+		task:         task,
+		errorHandler: errorHandler,
+		logger:       logger,
+	}
+}
+
 type Component struct {
 	logger       *zap.Logger
 	ctx          context.Context
 	in           []Port
 	out          []Port
-	tasks        []Task
-	stream       chan InformationPackage
+	task         Task
 	errorHandler ErrorHandler
 }
 
@@ -44,24 +54,23 @@ func (c *Component) ConnectOutPort(port Port) {
 	return
 }
 
-func (c *Component) AddTask(task Task) {
-	c.tasks = append(c.tasks, task)
+func (c *Component) SetTask(task Task) {
+	c.task = task
 }
 
-func (c *Component) Stream(streamIn *InformationPackage) (streamOut *InformationPackage) {
+func (c *Component) Stream(streamIn *InformationPackage) (streamOut *InformationPackage, err error) {
 
-	for _, task := range c.tasks {
-		streamOut, err := task.Do(streamIn)
-		if err != nil {
-			c.errorHandler.Handle(err)
-			continue
-		}
+	streamOut, err = c.task.Do(streamIn)
+	if err != nil {
+		c.errorHandler.Handle(err)
+		return
+	}
 
-		if c.out != nil {
-			for _, outPort := range c.out {
-				outPort.Out <- streamOut
-			}
+	if c.out != nil {
+		for _, outPort := range c.out {
+			outPort.Out <- streamOut
 		}
 	}
+
 	return
 }

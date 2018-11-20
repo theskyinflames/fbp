@@ -1,8 +1,8 @@
 package fbp
 
-func NewPort(id string, in chan *InformationPackage, out chan *InformationPackage) *Port {
+func NewPort(ID string, in chan *InformationPackage, out chan *InformationPackage) *Port {
 	return &Port{
-		ID:  id,
+		ID:  ID,
 		In:  in,
 		Out: out,
 	}

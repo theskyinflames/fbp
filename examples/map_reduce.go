@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/theskyinflames/fbp"
 	"github.com/theskyinflames/set"
@@ -125,5 +128,71 @@ func addToOut(ts time.Time, amount int, m map[time.Time]int) {
 }
 
 func main() {
+
+	const (
+		channelSz = 100
+	)
+
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+
+	_ = cancel
+
+	logger := zap.NewExample()
+	errorHander := fbp.NewErrorHandler(logger)
+
+	// Ports
+	reducerInPort := fbp.NewPort(
+		"reducerInPort",
+		make(chan *fbp.InformationPackage, channelSz),
+		make(chan *fbp.InformationPackage, channelSz),
+	)
+	reducerOutPort := fbp.NewPort(
+		"reducerOutPor",
+		make(chan *fbp.InformationPackage, channelSz),
+		make(chan *fbp.InformationPackage, channelSz),
+	)
+	mapperInPort := fbp.NewPort(
+		"mapperInPort",
+		make(chan *fbp.InformationPackage, channelSz),
+		make(chan *fbp.InformationPackage, channelSz),
+	)
+	mapperOutPort := fbp.NewPort(
+		"mapperOutPort",
+		make(chan *fbp.InformationPackage, channelSz),
+		make(chan *fbp.InformationPackage, channelSz),
+	)
+	writerInPort := fbp.NewPort(
+		"writerInPort",
+		make(chan *fbp.InformationPackage, channelSz),
+		make(chan *fbp.InformationPackage, channelSz),
+	)
+
+	// Connections
+	fromMapperToReducerConnection := fbp.NewConnection(
+		ctx,
+		"fromMapperToReducerConnection",
+		mapperOutPort,
+		reducerInPort,
+	)
+	fromReducerToWriterConnection := fbp.NewConnection(
+		ctx,
+		"fromReducerToWriterConnection",
+		reducerOutPort,
+		writerInPort,
+	)
+
+	// Components
+	mapperComponent := fbp.NewComponent(
+		ctx,
+		[]fbp.Port{*mapperInPort},
+		[]fbp.Port{*mapperOutPort},
+		&mapComponent{
+			id:      "map",
+			mapFunc: mapFunc,
+		},
+		*errorHander,
+		logger,
+	)
 
 }

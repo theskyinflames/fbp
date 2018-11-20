@@ -1,6 +1,19 @@
 package fbp
 
-import "github.com/theskyinflames/set"
+import (
+	"sync"
+
+	"github.com/theskyinflames/set"
+)
+
+func NewInformationPackage(ID string) *InformationPackage {
+	return &InformationPackage{
+		ID: ID,
+		Status: &set.Set{
+			RWMutex: sync.RWMutex{},
+		},
+	}
+}
 
 type InformationPackage struct {
 	ID     string
