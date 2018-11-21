@@ -15,6 +15,10 @@ import (
 	"github.com/theskyinflames/set"
 )
 
+/*
+	This is a very simple implementation of map/reduce paradigm using github.com/theskyinflames/fbp library
+*/
+
 type Data struct {
 	Timestamp time.Time
 	Amount    int
