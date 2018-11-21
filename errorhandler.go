@@ -14,6 +14,6 @@ type ErrorHandler struct {
 	logger *zap.Logger
 }
 
-func (eh *ErrorHandler) Handle(err error) {
+func (eh ErrorHandler) Handle(err error) {
 	eh.logger.Error(err.Error())
 }

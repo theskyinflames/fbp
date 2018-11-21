@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -78,16 +77,19 @@ type (
 
 func (mt *mapperTask) Do(in *fbp.InformationPackage) (out *fbp.InformationPackage, err error) {
 
-	data, err := in.Status.Peek(func() string { return DataKey })
-	if err != nil {
-		return
-	}
-	_, ok := data.([]Data)
-	if !ok {
-		return nil, errors.New("the retrieved data is not a []Data key")
+	slice := make([]Data, in.Status.Count())
+	iterator := in.Status.Iterator()
+	c := 0
+	for {
+		data, lastItem := iterator()
+		slice[c] = data.(Data)
+		if lastItem {
+			break
+		}
+		c++
 	}
 
-	toBeReduced := mt.mapFunc(data.([]Data))
+	toBeReduced := mt.mapFunc(slice)
 	out = &fbp.InformationPackage{
 		ID:     mt.id,
 		Status: &set.Set{},
@@ -97,10 +99,7 @@ func (mt *mapperTask) Do(in *fbp.InformationPackage) (out *fbp.InformationPackag
 }
 
 func (rt *reducerTask) Do(in *fbp.InformationPackage) (out *fbp.InformationPackage, err error) {
-	toReduce, err := in.Status.Peek(func() string { return ToReduceMapKey })
-	if err != nil {
-		return
-	}
+	toReduce, _ := in.Status.Iterator()()
 
 	reduced := rt.reduceFunc(toReduce.(map[time.Time]int))
 	out = &fbp.InformationPackage{
@@ -116,12 +115,11 @@ func (wt *writerTask) Do(in *fbp.InformationPackage) (out *fbp.InformationPackag
 
 	var reduced map[time.Time]int
 
-	iterator := in.Status.Iterator()
-	item, _ := iterator()
+	item, _ := in.Status.Iterator()()
 	reduced = item.(map[time.Time]int)
 
 	for k, v := range reduced {
-		wt.writer.Write([]byte(fmt.Sprintf("writer %s, item: %s -> %d", wt.id, fmt.Sprint(k), v)))
+		wt.writer.Write([]byte(fmt.Sprintf("writer %s, item: %s -> %d\n", wt.id, fmt.Sprint(k), v)))
 	}
 
 	return
@@ -263,7 +261,7 @@ func main() {
 	mapperInPort.In <- fbp.NewInformationPackage("ip1", data)
 
 	// Wait for a the process ends
-	time.Sleep(5 * time.Second)
+	time.Sleep(2 * time.Second)
 
 	os.Exit(0)
 }

@@ -19,17 +19,20 @@ type Connection struct {
 }
 
 func (c *Connection) Stream() {
-	for {
-		select {
-		case <-c.ctx.Done():
-			break
-		case informationPackage, ok := <-c.from.Out:
-			{
-				if !ok {
-					break
+	go func() {
+		for {
+			select {
+			case <-c.ctx.Done():
+				break
+			case informationPackage, ok := <-c.from.Out:
+				{
+					if !ok {
+						break
+					}
+					c.to.In <- informationPackage
 				}
-				c.to.In <- informationPackage
 			}
 		}
-	}
+	}()
+	return
 }
