@@ -20,8 +20,10 @@ type Data struct {
 	Amount    int
 }
 
-func (d Data) Key() string {
-	return fmt.Sprintf("%s_%s", fmt.Sprint(d.Timestamp), d.Amount)
+func (d Data) Key() func() string {
+	return func() string {
+		return fmt.Sprintf("%s_%s", fmt.Sprint(d.Timestamp), d.Amount)
+	}
 }
 
 const (
@@ -238,7 +240,7 @@ func main() {
 	// resulting output by its out ports
 
 	// Prepare the data to be processed
-	data := []Data{
+	data := []fbp.KeyGetter{
 		Data{
 			Amount:    1,
 			Timestamp: time.Now(),
