@@ -10,7 +10,7 @@ type Task interface {
 	Do(in *InformationPackage) (out *InformationPackage, err error)
 }
 
-func NewComponent(ctx context.Context, in []Port, out []Port, task Task, errorHandler ErrorHandler, logger *zap.Logger) *Component {
+func NewComponent(ctx context.Context, in []Port, out []Port, task Task, errorHandler *ErrorHandler, logger *zap.Logger) *Component {
 	return &Component{
 		ctx:          ctx,
 		in:           in,
@@ -27,7 +27,7 @@ type Component struct {
 	in           []Port
 	out          []Port
 	task         Task
-	errorHandler ErrorHandler
+	errorHandler *ErrorHandler
 }
 
 func (c *Component) StreamIn() {

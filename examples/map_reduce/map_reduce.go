@@ -46,12 +46,12 @@ var (
 		return
 	}
 
-	reduceFunc func(map[time.Time]int) map[time.Time]int = func(in map[time.Time]int) (out map[time.Time]int) {
-		out = make(map[time.Time]int)
+	reduceFunc func(map[time.Time]int, int) int = func(in map[time.Time]int, accAmount int) (out int) {
+		out = accAmount
 		now := time.Now()
 		for k, v := range in {
 			if now.Sub(k).Hours() <= 24 {
-				addToOut(k, v, out)
+				out += v
 			}
 		}
 		return
@@ -65,8 +65,9 @@ type (
 	}
 
 	reducerTask struct {
-		id         string
-		reduceFunc func(map[time.Time]int) map[time.Time]int
+		id          string
+		totalAmount int
+		reduceFunc  func(map[time.Time]int, int) int
 	}
 
 	writerTask struct {
@@ -101,7 +102,7 @@ func (mt *mapperTask) Do(in *fbp.InformationPackage) (out *fbp.InformationPackag
 func (rt *reducerTask) Do(in *fbp.InformationPackage) (out *fbp.InformationPackage, err error) {
 	toReduce, _ := in.Status.Iterator()()
 
-	reduced := rt.reduceFunc(toReduce.(map[time.Time]int))
+	reduced := rt.reduceFunc(toReduce.(map[time.Time]int), rt.totalAmount)
 	out = &fbp.InformationPackage{
 		ID:     rt.id,
 		Status: &set.Set{},
@@ -113,14 +114,10 @@ func (rt *reducerTask) Do(in *fbp.InformationPackage) (out *fbp.InformationPacka
 
 func (wt *writerTask) Do(in *fbp.InformationPackage) (out *fbp.InformationPackage, err error) {
 
-	var reduced map[time.Time]int
-
 	item, _ := in.Status.Iterator()()
-	reduced = item.(map[time.Time]int)
+	accAmount := item.(int)
 
-	for k, v := range reduced {
-		wt.writer.Write([]byte(fmt.Sprintf("writer %s, item: %s -> %d\n", wt.id, fmt.Sprint(k), v)))
-	}
+	wt.writer.Write([]byte(fmt.Sprintf("writer id:%s, acc amount: %d\n", wt.id, accAmount)))
 
 	return
 }
@@ -202,7 +199,7 @@ func main() {
 			id:      "mapper",
 			mapFunc: mapFunc,
 		},
-		*errorHander,
+		errorHander,
 		logger,
 	)
 	reducerComponent := fbp.NewComponent(
@@ -213,7 +210,7 @@ func main() {
 			id:         "reducer",
 			reduceFunc: reduceFunc,
 		},
-		*errorHander,
+		errorHander,
 		logger,
 	)
 	writerComponent := fbp.NewComponent(
@@ -224,7 +221,7 @@ func main() {
 			id:     "writer",
 			writer: os.Stdout,
 		},
-		*errorHander,
+		errorHander,
 		logger,
 	)
 
@@ -261,7 +258,7 @@ func main() {
 	mapperInPort.In <- fbp.NewInformationPackage("ip1", data)
 
 	// Wait for a the process ends
-	time.Sleep(2 * time.Second)
+	time.Sleep(1 * time.Second)
 
 	os.Exit(0)
 }
