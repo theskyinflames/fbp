@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -18,8 +19,6 @@ import (
 	This is a very simple implementation of map/reduce paradigm using github.com/theskyinflames/fbp library
 
 	-->mapper-->reducer-->writer
-
-	This version doesn't implement parallelism
 */
 
 type Data struct {
@@ -37,6 +36,10 @@ const (
 	DataKey        = "DataSetKey"
 	ToReduceMapKey = "ToReduceMapKey"
 	Reduced        = "Reduced"
+
+	channelSz                  = 100
+	concurrentMappersQuantity  = 3
+	concurrentReducersQuantity = 2
 )
 
 var (
@@ -140,10 +143,6 @@ func addToOut(ts time.Time, amount int, m map[time.Time]int) {
 
 func main() {
 
-	const (
-		channelSz = 100
-	)
-
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -154,46 +153,21 @@ func main() {
 	errorHander := fbp.NewErrorHandler(logger)
 
 	// Define ports
-	reducerInPort := fbp.NewPort(
-		"reducerInPort",
-		make(chan *fbp.InformationPackage, channelSz),
-		make(chan *fbp.InformationPackage, channelSz),
-	)
-	reducerOutPort := fbp.NewPort(
-		"reducerOutPort",
-		make(chan *fbp.InformationPackage, channelSz),
-		make(chan *fbp.InformationPackage, channelSz),
-	)
-	mapperInPort := fbp.NewPort(
-		"mapperInPort",
-		make(chan *fbp.InformationPackage, channelSz),
-		make(chan *fbp.InformationPackage, channelSz),
-	)
-	mapperOutPort := fbp.NewPort(
-		"mapperOutPort",
-		make(chan *fbp.InformationPackage, channelSz),
-		make(chan *fbp.InformationPackage, channelSz),
-	)
-	writerInPort := fbp.NewPort(
-		"writerInPort",
-		make(chan *fbp.InformationPackage, channelSz),
-		make(chan *fbp.InformationPackage, channelSz),
-	)
+	readerOutPorts := getPortSlice(3, "readerOutPort")
+	reducerInPorts := getPortSlice(concurrentReducersQuantity, "reducerInPort")
+	reducerOutPorts := getPortSlice(concurrentReducersQuantity, "reducerOutPort")
+	mapperInPorts := getPortSlice(concurrentMappersQuantity, "mapperInPort")
+	mapperOutPort := getPortSlice(concurrentMappersQuantity, "mapperOutPort")
+	writerInPort := getPortSlice(1, "writerInPort")
 
 	// Define connections
-	fromMapperToReducerConnection := fbp.NewConnection(
-		ctx,
-		"fromMapperToReducerConnection",
-		mapperOutPort,
-		reducerInPort,
-	)
-	fromReducerToWriterConnection := fbp.NewConnection(
-		ctx,
-		"fromReducerToWriterConnection",
-		reducerOutPort,
-		writerInPort,
-	)
+	fromReaderToReducerConnections := getConnectionSlice(ctx, readerOutPorts, mapperInPorts, "fromMapperToReducerConnection")
+	fromMapperToReducerConnections := getConnectionSlice(ctx, mapperOutPorts, reducerInPorts, "fromMapperToReducerConnection")
+	fromReducerToWriterConnections := getConnectionSlice(ctx, reducerOutPorts, writerInPorts, "fromReducerToWriterConnection")
 
+	continue ... 
+
+	
 	// Define components
 	mapperComponent := fbp.NewComponent(
 		ctx,
@@ -265,4 +239,32 @@ func main() {
 	time.Sleep(1 * time.Second)
 
 	os.Exit(0)
+}
+
+func getPortSlice(sz int, id string) (ports []fbp.Port) {
+	ports = make([]fbp.Port, sz)
+	for c := 0; c < sz; c++ {
+		ports[sz] = fbp.NewPort(
+			id+"_"+fmt.Sprint(id),
+			make(chan *fbp.InformationPackage, channelSz),
+			make(chan *fbp.InformationPackage, channelSz),
+		)
+	}
+	return
+}
+
+func getConnectionSlice(ctx context.Context, inPorts, outPorts []fbp.Port, id string) (connections []fbp.Connection, err error) {
+	if len(inPorts) != len(outPorts) {
+		return nil, errors.New("there must be the same number of in and out ports")
+	}
+	connections = make([]fbp.Connection, len(inPorts))
+	for c, _ := range inPorts {
+		connections[c] = fbp.NewConnection(
+			ctx,
+			id+"_"+fmt.Sprint(c),
+			outPorts[c],
+			inPorts[c],
+		)
+	}
+	return
 }
