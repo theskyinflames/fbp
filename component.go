@@ -7,12 +7,13 @@ import (
 )
 
 type Task interface {
-	Do(in *InformationPackage) (out *InformationPackage, err error)
+	Do(in *InformationPackage) (out []InformationPackage, err error)
 }
 
-func NewComponent(ctx context.Context, in []Port, out []Port, task Task, errorHandler *ErrorHandler, logger *zap.Logger) *Component {
+func NewComponent(ctx context.Context, id string, in []Port, out []Port, task Task, errorHandler *ErrorHandler, logger *zap.Logger) *Component {
 	return &Component{
 		ctx:          ctx,
+		id:           id,
 		in:           in,
 		out:          out,
 		task:         task,
@@ -22,12 +23,13 @@ func NewComponent(ctx context.Context, in []Port, out []Port, task Task, errorHa
 }
 
 type Component struct {
-	logger       *zap.Logger
-	ctx          context.Context
+	id           string
 	in           []Port
 	out          []Port
 	task         Task
 	errorHandler *ErrorHandler
+	logger       *zap.Logger
+	ctx          context.Context
 }
 
 func (c *Component) StreamIn() {
@@ -54,11 +56,14 @@ func (c *Component) StreamIn() {
 	return
 }
 
-func (c *Component) streamOut(streamOut *InformationPackage) {
+func (c *Component) streamOut(streamOut []InformationPackage) {
 	if c.out != nil {
-		for _, outPort := range c.out {
-			outPort.Out <- streamOut
+		numOutPorts := len(c.out)
+		for z, informationPackage := range streamOut {
+			c.out[z%numOutPorts].Out <- &informationPackage
 		}
+	} else {
+		c.logger.Warn("there is not out ports defined", zap.String("component_id", c.id))
 	}
 	return
 }
