@@ -192,7 +192,6 @@ func main() {
 		ctx,
 		"mapper",
 		[]fbp.Port{*mapperPort},
-		[]fbp.Port{*mapperPort},
 		&mapperTask{
 			id:      "mapper",
 			mapFunc: mapFunc,
@@ -203,7 +202,6 @@ func main() {
 	reducerComponent := fbp.NewComponent(
 		ctx,
 		"reducer",
-		[]fbp.Port{*reducerPort},
 		[]fbp.Port{*reducerPort},
 		&reducerTask{
 			id:         "reducer",
@@ -216,7 +214,6 @@ func main() {
 		ctx,
 		"writer",
 		[]fbp.Port{*writerPort},
-		nil,
 		&writerTask{
 			id:     "writer",
 			writer: os.Stdout,

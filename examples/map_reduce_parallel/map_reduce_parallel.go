@@ -37,9 +37,7 @@ const (
 	ToReduceMapKey = "ToReduceMapKey"
 	Reduced        = "Reduced"
 
-	channelSz                  = 100
-	concurrentMappersQuantity  = 3
-	concurrentReducersQuantity = 2
+	channelSz = 100
 )
 
 var (
@@ -66,6 +64,10 @@ var (
 )
 
 type (
+	readerTask struct {
+		id string
+	}
+
 	mapperTask struct {
 		id      string
 		mapFunc func([]Data) map[time.Time]int
@@ -82,6 +84,22 @@ type (
 		writer io.Writer
 	}
 )
+
+func (rt *readerTask) Do(in *fbp.InformationPackage) (out []fbp.InformationPackage, err error) {
+	data, _ := in.Status.Iterator()()
+	if err != nil {
+		return
+	}
+
+	out = []fbp.InformationPackage{
+		fbp.InformationPackage{
+			ID:     rt.id,
+			Status: &set.Set{},
+		},
+	}
+	out[0].Status.Add(func() string { return "Read_" + rt.id }, data)
+	return
+}
 
 func (mt *mapperTask) Do(in *fbp.InformationPackage) (out []fbp.InformationPackage, err error) {
 
@@ -168,16 +186,14 @@ func main() {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	_ = cancel
-
 	logger := zap.NewExample()
 	errorHander := fbp.NewErrorHandler(logger)
 
 	// Define ports
 	readerPorts := getPortSlice(3, "readerPort")
-	reducerPorts := getPortSlice(concurrentReducersQuantity, "reducerPort")
-	mapperPorts := getPortSlice(concurrentMappersQuantity, "mapperPort")
-	writerPort := getPortSlice(1, "writerPort")
+	reducerPorts := getPortSlice(3, "reducerPort")
+	mapperPorts := getPortSlice(3, "mapperPort")
+	writerPort := getPortSlice(3, "writerPort")
 
 	// Define connections
 	fromReaderToMapperConnections, err := getConnectionSlice(ctx, readerPorts, mapperPorts, "fromMapperToReducerConnection")
@@ -196,15 +212,17 @@ func main() {
 	// Define components
 	readerComponent := fbp.NewComponent(
 		ctx,
+		"reader",
 		readerPorts,
-		readerPorts,
-		nil,
+		&readerTask{
+			id: "reader",
+		},
 		errorHander,
 		logger,
 	)
 	mapperComponent := fbp.NewComponent(
 		ctx,
-		mapperPorts,
+		"mapper",
 		mapperPorts,
 		&mapperTask{
 			id:      "mapper",
@@ -215,7 +233,7 @@ func main() {
 	)
 	reducerComponent := fbp.NewComponent(
 		ctx,
-		reducerPorts,
+		"reducer",
 		reducerPorts,
 		&reducerTask{
 			id:         "reducer",
@@ -226,8 +244,8 @@ func main() {
 	)
 	writerComponent := fbp.NewComponent(
 		ctx,
+		"writer",
 		writerPort,
-		nil,
 		&writerTask{
 			id:     "writer",
 			writer: os.Stdout,
@@ -237,6 +255,7 @@ func main() {
 	)
 
 	// Start the components
+	readerComponent.StreamIn()
 	mapperComponent.StreamIn()
 	reducerComponent.StreamIn()
 	writerComponent.StreamIn()
@@ -273,7 +292,7 @@ func main() {
 	}
 
 	// Send the data to be processed
-	readerPortIn.In <- fbp.NewInformationPackage("ip1", data)
+	readerPorts[0].In <- fbp.NewInformationPackage("ip1", data)
 
 	// Wait for a the process ends
 	time.Sleep(5 * time.Second)
@@ -284,7 +303,7 @@ func main() {
 func getPortSlice(sz int, id string) (ports []fbp.Port) {
 	ports = make([]fbp.Port, sz)
 	for c := 0; c < sz; c++ {
-		ports[sz] = fbp.NewPort(
+		ports[c] = *fbp.NewPort(
 			id+"_"+fmt.Sprint(id),
 			make(chan *fbp.InformationPackage, channelSz),
 			make(chan *fbp.InformationPackage, channelSz),
@@ -299,11 +318,11 @@ func getConnectionSlice(ctx context.Context, inPorts, outPorts []fbp.Port, id st
 	}
 	connections = make([]fbp.Connection, len(inPorts))
 	for c, _ := range inPorts {
-		connections[c] = fbp.NewConnection(
+		connections[c] = *fbp.NewConnection(
 			ctx,
 			id+"_"+fmt.Sprint(c),
-			outPorts[c],
-			inPorts[c],
+			&outPorts[c],
+			&inPorts[c],
 		)
 	}
 	return
