@@ -223,9 +223,9 @@ func main() {
 	)
 
 	// Start the components
-	mapperComponent.StreamIn()
-	reducerComponent.StreamIn()
-	writerComponent.StreamIn()
+	mapperComponent.Stream()
+	reducerComponent.Stream()
+	writerComponent.Stream()
 
 	// Start the connections
 	fromMapperToReducerConnection.Stream()

@@ -1,6 +1,9 @@
 package fbp
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 func NewConnection(ctx context.Context, id string, from *Port, to *Port) *Connection {
 	return &Connection{
@@ -20,17 +23,18 @@ type Connection struct {
 
 func (c *Connection) Stream() {
 	go func() {
+		fmt.Println("*jas* starting connection", c.ID)
 		for {
 			select {
 			case <-c.ctx.Done():
+				fmt.Println("*jas* connection", c.ID, "received ctx.cancel()")
 				break
 			case informationPackage, ok := <-c.from.Out:
-				{
-					if !ok {
-						break
-					}
-					c.to.In <- informationPackage
+				fmt.Println("*jas* connection, package read", c.ID, "in", informationPackage)
+				if !ok {
+					break
 				}
+				c.to.In <- informationPackage
 			}
 		}
 	}()

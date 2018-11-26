@@ -86,6 +86,8 @@ type (
 )
 
 func (rt *readerTask) Do(in *fbp.InformationPackage) (out []fbp.InformationPackage, err error) {
+
+	fmt.Println("*jas* reader task", rt.id)
 	data, _ := in.Status.Iterator()()
 	if err != nil {
 		return
@@ -196,7 +198,7 @@ func main() {
 	writerPort := getPortSlice(3, "writerPort")
 
 	// Define connections
-	fromReaderToMapperConnections, err := getConnectionSlice(ctx, readerPorts, mapperPorts, "fromMapperToReducerConnection")
+	fromReaderToMapperConnections, err := getConnectionSlice(ctx, readerPorts, mapperPorts, "fromReaderToMapperConnection")
 	if err != nil {
 		panic(err)
 	}
@@ -255,20 +257,20 @@ func main() {
 	)
 
 	// Start the components
-	readerComponent.StreamIn()
-	mapperComponent.StreamIn()
-	reducerComponent.StreamIn()
-	writerComponent.StreamIn()
+	readerComponent.Stream()
+	mapperComponent.Stream()
+	reducerComponent.Stream()
+	writerComponent.Stream()
 
 	// Start the connections
-	for _, c := range fromReaderToMapperConnections {
-		c.Stream()
+	for n, _ := range fromReaderToMapperConnections {
+		fromReaderToMapperConnections[n].Stream()
 	}
-	for _, c := range fromMapperToReducerConnections {
-		c.Stream()
+	for n, _ := range fromMapperToReducerConnections {
+		fromMapperToReducerConnections[n].Stream()
 	}
-	for _, c := range fromReducerToWriterConnections {
-		c.Stream()
+	for n, _ := range fromReducerToWriterConnections {
+		fromReducerToWriterConnections[n].Stream()
 	}
 
 	// At this point, all the components are wainting for ready data
@@ -295,7 +297,8 @@ func main() {
 	readerPorts[0].In <- fbp.NewInformationPackage("ip1", data)
 
 	// Wait for a the process ends
-	time.Sleep(5 * time.Second)
+	fmt.Println("*jas* waiting for components an connections ends ...")
+	time.Sleep(2 * time.Second)
 
 	os.Exit(0)
 }
@@ -304,7 +307,7 @@ func getPortSlice(sz int, id string) (ports []fbp.Port) {
 	ports = make([]fbp.Port, sz)
 	for c := 0; c < sz; c++ {
 		ports[c] = *fbp.NewPort(
-			id+"_"+fmt.Sprint(id),
+			id+"_"+fmt.Sprint(c),
 			make(chan *fbp.InformationPackage, channelSz),
 			make(chan *fbp.InformationPackage, channelSz),
 		)
@@ -317,12 +320,12 @@ func getConnectionSlice(ctx context.Context, inPorts, outPorts []fbp.Port, id st
 		return nil, errors.New("there must be the same number of in and out ports")
 	}
 	connections = make([]fbp.Connection, len(inPorts))
-	for c, _ := range inPorts {
-		connections[c] = *fbp.NewConnection(
+	for n, _ := range inPorts {
+		connections[n] = *fbp.NewConnection(
 			ctx,
-			id+"_"+fmt.Sprint(c),
-			&outPorts[c],
-			&inPorts[c],
+			id+"_"+fmt.Sprint(n),
+			&inPorts[n],
+			&outPorts[n],
 		)
 	}
 	return
