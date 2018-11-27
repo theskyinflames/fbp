@@ -15,6 +15,8 @@ import (
 )
 
 /*
+   *** This is a WIP ***
+
 	This is a very simple implementation of map/reduce paradigm using github.com/theskyinflames/fbp library
 
 	reader-->mapper-->reducer-->writer
