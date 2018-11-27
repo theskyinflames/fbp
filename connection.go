@@ -2,35 +2,37 @@ package fbp
 
 import (
 	"context"
-	"fmt"
+
+	"go.uber.org/zap"
 )
 
-func NewConnection(ctx context.Context, id string, from *Port, to *Port) *Connection {
+func NewConnection(ctx context.Context, id string, from *Port, to *Port, logger *zap.Logger) *Connection {
 	return &Connection{
-		ctx:  ctx,
-		ID:   id,
-		from: from,
-		to:   to,
+		ctx:    ctx,
+		ID:     id,
+		from:   from,
+		to:     to,
+		logger: logger,
 	}
 }
 
 type Connection struct {
-	ctx  context.Context
-	ID   string
-	from *Port
-	to   *Port
+	logger *zap.Logger
+	ctx    context.Context
+	ID     string
+	from   *Port
+	to     *Port
 }
 
 func (c *Connection) Stream() {
 	go func() {
-		fmt.Println("*jas* starting connection", c.ID)
+		c.logger.Info("starting connection", zap.String("id", c.ID))
 		for {
 			select {
 			case <-c.ctx.Done():
-				fmt.Println("*jas* connection", c.ID, "received ctx.cancel()")
 				break
 			case informationPackage, ok := <-c.from.Out:
-				fmt.Println("*jas* connection, package read", c.ID, "in", informationPackage)
+				c.logger.Debug("connection received information package", zap.String("id", c.ID))
 				if !ok {
 					break
 				}

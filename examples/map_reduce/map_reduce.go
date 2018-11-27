@@ -179,12 +179,14 @@ func main() {
 		"fromMapperToReducerConnection",
 		mapperPort,
 		reducerPort,
+		logger,
 	)
 	fromReducerToWriterConnection := fbp.NewConnection(
 		ctx,
 		"fromReducerToWriterConnection",
 		reducerPort,
 		writerPort,
+		logger,
 	)
 
 	// Define components

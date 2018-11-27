@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -18,7 +17,9 @@ import (
 /*
 	This is a very simple implementation of map/reduce paradigm using github.com/theskyinflames/fbp library
 
-	-->mapper-->reducer-->writer
+	reader-->mapper-->reducer-->writer
+	      -->mapper-->reducer-->writer
+	      -->mapper-->reducer-->writer
 */
 
 type Data struct {
@@ -41,8 +42,6 @@ const (
 )
 
 var (
-	rwmutex = &sync.RWMutex{}
-
 	mapFunc func([]Data) map[time.Time]int = func(in []Data) (out map[time.Time]int) {
 		out = make(map[time.Time]int)
 		for _, v := range in {
@@ -87,7 +86,6 @@ type (
 
 func (rt *readerTask) Do(in *fbp.InformationPackage) (out []fbp.InformationPackage, err error) {
 
-	fmt.Println("*jas* reader task", rt.id)
 	data, _ := in.Status.Iterator()()
 	if err != nil {
 		return
@@ -148,8 +146,6 @@ func (wt *writerTask) Do(in *fbp.InformationPackage) (out []fbp.InformationPacka
 }
 
 func addToOut(ts time.Time, amount int, m map[time.Time]int) {
-	rwmutex.Lock()
-	defer rwmutex.Unlock()
 
 	if _, ok := m[ts]; !ok {
 		m[ts] = amount
@@ -166,11 +162,14 @@ func pack(toBePackaged map[time.Time]int, packageSz int) []fbp.InformationPackag
 		z                  int = 0
 	)
 
+	var packMap map[time.Time]int
 	for k, v := range toBePackaged {
 		if informationPackage == nil {
+			packMap = make(map[time.Time]int)
 			informationPackage = &fbp.InformationPackage{ID: fmt.Sprint(k), Status: &set.Set{}}
+			informationPackage.Status.Add(func() string { return "pkg_" + fmt.Sprint(k) }, packMap)
 		}
-		informationPackage.Status.Add(func() string { return "pkg_" + fmt.Sprint(k) }, v)
+		packMap[k] = v
 		z++
 
 		if z%packageSz == 0 {
@@ -198,15 +197,15 @@ func main() {
 	writerPort := getPortSlice(3, "writerPort")
 
 	// Define connections
-	fromReaderToMapperConnections, err := getConnectionSlice(ctx, readerPorts, mapperPorts, "fromReaderToMapperConnection")
+	fromReaderToMapperConnections, err := getConnectionSlice(ctx, readerPorts, mapperPorts, "fromReaderToMapperConnection", logger)
 	if err != nil {
 		panic(err)
 	}
-	fromMapperToReducerConnections, err := getConnectionSlice(ctx, mapperPorts, reducerPorts, "fromMapperToReducerConnection")
+	fromMapperToReducerConnections, err := getConnectionSlice(ctx, mapperPorts, reducerPorts, "fromMapperToReducerConnection", logger)
 	if err != nil {
 		panic(err)
 	}
-	fromReducerToWriterConnections, err := getConnectionSlice(ctx, reducerPorts, writerPort, "fromReducerToWriterConnection")
+	fromReducerToWriterConnections, err := getConnectionSlice(ctx, reducerPorts, writerPort, "fromReducerToWriterConnection", logger)
 	if err != nil {
 		panic(err)
 	}
@@ -315,7 +314,7 @@ func getPortSlice(sz int, id string) (ports []fbp.Port) {
 	return
 }
 
-func getConnectionSlice(ctx context.Context, inPorts, outPorts []fbp.Port, id string) (connections []fbp.Connection, err error) {
+func getConnectionSlice(ctx context.Context, inPorts, outPorts []fbp.Port, id string, logger *zap.Logger) (connections []fbp.Connection, err error) {
 	if len(inPorts) != len(outPorts) {
 		return nil, errors.New("there must be the same number of in and out ports")
 	}
@@ -326,6 +325,7 @@ func getConnectionSlice(ctx context.Context, inPorts, outPorts []fbp.Port, id st
 			id+"_"+fmt.Sprint(n),
 			&inPorts[n],
 			&outPorts[n],
+			logger,
 		)
 	}
 	return

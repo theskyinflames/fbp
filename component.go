@@ -2,7 +2,6 @@ package fbp
 
 import (
 	"context"
-	"fmt"
 
 	"go.uber.org/zap"
 )
@@ -35,16 +34,15 @@ func (c *Component) Stream() {
 	for n, _ := range c.ports {
 		port := c.ports[n]
 		go func() {
-			fmt.Println("*jas* component starting", c.id, port.ID)
+			c.logger.Info("component starting", zap.String("id", c.id), zap.String("port_id", port.ID))
 			for {
 				select {
 				case <-c.ctx.Done():
-					fmt.Println("*jas component finishing", c.id)
 					break
 				case informationPackage, ok := <-port.In:
-					fmt.Println("*jas* component", c.id, " received package")
+					c.logger.Debug("component received information package", zap.String("id", c.id))
 					if !ok {
-						c.logger.Info("in port closed", zap.String("id", port.ID))
+						c.logger.Warn("in port closed", zap.String("id", port.ID))
 						break
 					}
 					out, err := c.task.Do(informationPackage)
@@ -52,8 +50,6 @@ func (c *Component) Stream() {
 						c.errorHandler.Handle(err)
 					}
 					c.streamOut(out)
-				default:
-					//fmt.Println("*jas* component stream default", c.id)
 				}
 			}
 		}()
