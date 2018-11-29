@@ -193,13 +193,13 @@ func main() {
 	errorHander := fbp.NewErrorHandler(logger)
 
 	// Define ports
-	readerPorts := getPortSlice(3, "readerPort")
+	readerPorts := getPortSlice(1, "readerPort")
 	reducerPorts := getPortSlice(3, "reducerPort")
 	mapperPorts := getPortSlice(3, "mapperPort")
-	writerPort := getPortSlice(3, "writerPort")
+	writerPorts := getPortSlice(1, "writerPort")
 
 	// Define connections
-	fromReaderToMapperConnections, err := getConnectionSlice(ctx, readerPorts, mapperPorts, "fromReaderToMapperConnection", logger)
+	fromReaderToMapperConnections, err := getConnectionsFromReaderToMapper(ctx, readerPorts[0], mapperPorts, "fromReaderToMapperConnection", logger)
 	if err != nil {
 		panic(err)
 	}
@@ -207,7 +207,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fromReducerToWriterConnections, err := getConnectionSlice(ctx, reducerPorts, writerPort, "fromReducerToWriterConnection", logger)
+	fromReducerToWriterConnections, err := getConnectionsFromReducerToWriter(ctx, reducerPorts, writerPorts[0], "fromReducerToWriterConnection", logger)
 	if err != nil {
 		panic(err)
 	}
@@ -248,7 +248,7 @@ func main() {
 	writerComponent := fbp.NewComponent(
 		ctx,
 		"writer",
-		writerPort,
+		writerPorts,
 		&writerTask{
 			id:     "writer",
 			writer: os.Stdout,
@@ -327,6 +327,35 @@ func getConnectionSlice(ctx context.Context, inPorts, outPorts []fbp.Port, id st
 			id+"_"+fmt.Sprint(n),
 			&inPorts[n],
 			&outPorts[n],
+			logger,
+		)
+	}
+	return
+}
+
+func getConnectionsFromReaderToMapper(ctx context.Context, inPort fbp.Port, outPorts []fbp.Port, id string, logger *zap.Logger) (connections []fbp.Connection, err error) {
+	connections = make([]fbp.Connection, len(outPorts))
+	for n, _ := range outPorts {
+		connections[n] = *fbp.NewConnection(
+			ctx,
+			id+"_"+fmt.Sprint(n),
+			&inPort,
+			&outPorts[n],
+			logger,
+		)
+	}
+	return
+}
+
+func getConnectionsFromReducerToWriter(ctx context.Context, inPorts []fbp.Port, outPort fbp.Port, id string, logger *zap.Logger) (connections []fbp.Connection, err error) {
+
+	connections = make([]fbp.Connection, len(inPorts))
+	for n, _ := range inPorts {
+		connections[n] = *fbp.NewConnection(
+			ctx,
+			id+"_"+fmt.Sprint(n),
+			&inPorts[n],
+			&outPort,
 			logger,
 		)
 	}
