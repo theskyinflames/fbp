@@ -1,5 +1,7 @@
 package fbp
 
+type PortType int
+
 func NewPort(ID string, in chan *InformationPackage, out chan *InformationPackage) *Port {
 	return &Port{
 		ID:  ID,
