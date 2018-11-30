@@ -10,7 +10,7 @@ type KeyGetter interface {
 	Key() func() string
 }
 
-func NewInformationPackage(ID string, data []KeyGetter) *InformationPackage {
+func NewInformationPackage(ID string, data KeyGetter) *InformationPackage {
 	ip := &InformationPackage{
 		ID: ID,
 		Status: &set.Set{
@@ -18,9 +18,7 @@ func NewInformationPackage(ID string, data []KeyGetter) *InformationPackage {
 		},
 	}
 	if data != nil {
-		for _, item := range data {
-			ip.Status.Add(item.Key(), item)
-		}
+		ip.Status.Add(data.Key(), data)
 	}
 	return ip
 }

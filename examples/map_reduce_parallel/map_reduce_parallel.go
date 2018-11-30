@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"time"
+
+	"sync/atomic"
 
 	"go.uber.org/zap"
 
@@ -19,19 +20,14 @@ import (
 
 	This is a very simple implementation of map/reduce paradigm using github.com/theskyinflames/fbp library
 
-	reader-->mapper-->reducer-->writer
-	      -->mapper-->reducer-->writer
-	      -->mapper-->reducer-->writer
+	         / ----->mapper >--> reducer >------\
+	reader > ------->mapper >--> reducer >-------  > writer
+		     \------>mapper >--> reducer >------/
 */
-
-type Data struct {
-	Timestamp time.Time
-	Amount    int
-}
 
 func (d Data) Key() func() string {
 	return func() string {
-		return fmt.Sprintf("%s_%s", fmt.Sprint(d.Timestamp), d.Amount)
+		return fmt.Sprintf("%s_%d", fmt.Sprint(d.Timestamp), d.Amount)
 	}
 }
 
@@ -44,7 +40,7 @@ const (
 )
 
 var (
-	mapFunc func([]Data) map[time.Time]int = func(in []Data) (out map[time.Time]int) {
+	mapFunc func(tData) map[time.Time]int = func(in tData) (out map[time.Time]int) {
 		out = make(map[time.Time]int)
 		for _, v := range in {
 			addToOut(v.Timestamp, v.Amount, out)
@@ -52,12 +48,11 @@ var (
 		return
 	}
 
-	reduceFunc func(map[time.Time]int, int) int = func(in map[time.Time]int, accAmount int) (out int) {
-		out = accAmount
+	reduceFunc func(map[time.Time]int, *int32) int32 = func(in map[time.Time]int, accAmount *int32) (out int32) {
 		now := time.Now()
 		for k, v := range in {
 			if now.Sub(k).Hours() <= 24 {
-				out += v
+				out = atomic.AddInt32(accAmount, int32(v))
 			}
 		}
 		return
@@ -65,19 +60,25 @@ var (
 )
 
 type (
+	Data struct {
+		Timestamp time.Time
+		Amount    int
+	}
+	tData []Data
+
 	readerTask struct {
 		id string
 	}
 
 	mapperTask struct {
 		id      string
-		mapFunc func([]Data) map[time.Time]int
+		mapFunc func(tData) map[time.Time]int
 	}
 
 	reducerTask struct {
-		id          string
-		totalAmount int
-		reduceFunc  func(map[time.Time]int, int) int
+		id         string
+		counter    *int32
+		reduceFunc func(map[time.Time]int, *int32) int32
 	}
 
 	writerTask struct {
@@ -86,61 +87,55 @@ type (
 	}
 )
 
-func (rt *readerTask) Do(in *fbp.InformationPackage) (out []fbp.InformationPackage, err error) {
+func (tD tData) Key() func() string {
+	return func() string {
+		return fmt.Sprintf("data_%d", len(tD))
+	}
+}
+
+func (rt *readerTask) Do(in *fbp.InformationPackage) (out *fbp.InformationPackage, err error) {
 
 	data, _ := in.Status.Iterator()()
 	if err != nil {
 		return
 	}
 
-	out = []fbp.InformationPackage{
-		fbp.InformationPackage{
-			ID:     rt.id,
-			Status: &set.Set{},
-		},
+	out = &fbp.InformationPackage{
+		ID:     rt.id,
+		Status: &set.Set{},
 	}
-	out[0].Status.Add(func() string { return "Read_" + rt.id }, data)
+	out.Status.Add(func() string { return "Read_" + rt.id }, data)
 	return
 }
 
-func (mt *mapperTask) Do(in *fbp.InformationPackage) (out []fbp.InformationPackage, err error) {
+func (mt *mapperTask) Do(in *fbp.InformationPackage) (out *fbp.InformationPackage, err error) {
 
-	packageSz := 1
-	slice := make([]Data, in.Status.Count())
-	iterator := in.Status.Iterator()
-	c := 0
-	for {
-		data, lastItem := iterator()
-		slice[c] = data.(Data)
-		if lastItem {
-			break
-		}
-		c++
+	data, _ := in.Status.Iterator()()
+	mapped := mt.mapFunc(data.(tData))
+	out = &fbp.InformationPackage{
+		ID:     mt.id,
+		Status: &set.Set{},
 	}
-
-	toBeReduced := mt.mapFunc(slice)
-	out = pack(toBeReduced, packageSz)
+	out.Status.Add(func() string { return mt.id }, mapped)
 	return
 }
 
-func (rt *reducerTask) Do(in *fbp.InformationPackage) (out []fbp.InformationPackage, err error) {
+func (rt *reducerTask) Do(in *fbp.InformationPackage) (out *fbp.InformationPackage, err error) {
 	toReduce, _ := in.Status.Iterator()()
 
-	reduced := rt.reduceFunc(toReduce.(map[time.Time]int), rt.totalAmount)
-	out = []fbp.InformationPackage{
-		fbp.InformationPackage{
-			ID:     rt.id,
-			Status: &set.Set{},
-		},
+	reduced := rt.reduceFunc(toReduce.(map[time.Time]int), rt.counter)
+	out = &fbp.InformationPackage{
+		ID:     rt.id,
+		Status: &set.Set{},
 	}
-	out[0].Status.Add(func() string { return Reduced + "_" + rt.id }, reduced)
+	out.Status.Add(func() string { return Reduced + "_" + rt.id }, reduced)
 	return
 }
 
-func (wt *writerTask) Do(in *fbp.InformationPackage) (out []fbp.InformationPackage, err error) {
+func (wt *writerTask) Do(in *fbp.InformationPackage) (out *fbp.InformationPackage, err error) {
 
 	item, _ := in.Status.Iterator()()
-	accAmount := item.(int)
+	accAmount := item.(int32)
 
 	wt.writer.Write([]byte(fmt.Sprintf("writer id:%s, acc amount: %d\n", wt.id, accAmount)))
 
@@ -157,98 +152,67 @@ func addToOut(ts time.Time, amount int, m map[time.Time]int) {
 	return
 }
 
-func pack(toBePackaged map[time.Time]int, packageSz int) []fbp.InformationPackage {
-	var (
-		packaged           = make([]fbp.InformationPackage, 0)
-		informationPackage *fbp.InformationPackage
-		z                  int = 0
-	)
-
-	var packMap map[time.Time]int
-	for k, v := range toBePackaged {
-		if informationPackage == nil {
-			packMap = make(map[time.Time]int)
-			informationPackage = &fbp.InformationPackage{ID: fmt.Sprint(k), Status: &set.Set{}}
-			informationPackage.Status.Add(func() string { return "pkg_" + fmt.Sprint(k) }, packMap)
-		}
-		packMap[k] = v
-		z++
-
-		if z%packageSz == 0 {
-			packaged = append(packaged, *informationPackage)
-			informationPackage = nil
-		}
-	}
-
-	return packaged
-}
-
-func main() {
-
-	ctx := context.Background()
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	logger := zap.NewExample()
-	errorHander := fbp.NewErrorHandler(logger)
-
-	// Define ports
-	readerPorts := getPortSlice(1, "readerPort")
-	reducerPorts := getPortSlice(3, "reducerPort")
-	mapperPorts := getPortSlice(3, "mapperPort")
-	writerPorts := getPortSlice(1, "writerPort")
-
-	// Define connections
-	fromReaderToMapperConnections, err := getConnectionsFromReaderToMapper(ctx, readerPorts[0], mapperPorts, "fromReaderToMapperConnection", logger)
-	if err != nil {
-		panic(err)
-	}
-	fromMapperToReducerConnections, err := getConnectionSlice(ctx, mapperPorts, reducerPorts, "fromMapperToReducerConnection", logger)
-	if err != nil {
-		panic(err)
-	}
-	fromReducerToWriterConnections, err := getConnectionsFromReducerToWriter(ctx, reducerPorts, writerPorts[0], "fromReducerToWriterConnection", logger)
-	if err != nil {
-		panic(err)
-	}
-
-	// Define components
+func startReaderComponent(ctx context.Context, readerPort *fbp.Port, errorHander *fbp.ErrorHandler, logger *zap.Logger) {
 	readerComponent := fbp.NewComponent(
 		ctx,
 		"reader",
-		readerPorts,
+		readerPort,
 		&readerTask{
 			id: "reader",
 		},
 		errorHander,
 		logger,
 	)
-	mapperComponent := fbp.NewComponent(
+	readerComponent.Stream()
+}
+
+func startMapperComponents(ctx context.Context, mapperPorts []fbp.Port, errorHander *fbp.ErrorHandler, logger *zap.Logger) {
+	fid := func(k int) string {
+		return fmt.Sprintf("mapper_%d", k)
+	}
+	for k, _ := range mapperPorts {
+		mapperComponent := fbp.NewComponent(
+			ctx,
+			fid(k),
+			&mapperPorts[k],
+			&mapperTask{
+				id:      fid(k),
+				mapFunc: mapFunc,
+			},
+			errorHander,
+			logger,
+		)
+		mapperComponent.Stream()
+	}
+}
+
+func startReducerComponents(ctx context.Context, reducerPorts []fbp.Port, errorHander *fbp.ErrorHandler, logger *zap.Logger) {
+	fid := func(k int) string {
+		return fmt.Sprintf("reducer_%d", k)
+	}
+	accumulator := int32(0)
+	for k, _ := range reducerPorts {
+		reducerComponent := fbp.NewComponent(
+			ctx,
+			fid(k),
+			&reducerPorts[k],
+			&reducerTask{
+				id:         fid(k),
+				counter:    &accumulator,
+				reduceFunc: reduceFunc,
+			},
+			errorHander,
+			logger,
+		)
+		reducerComponent.Stream()
+	}
+}
+
+func startWriterComponent(ctx context.Context, writerPort *fbp.Port, errorHander *fbp.ErrorHandler, logger *zap.Logger) {
+	writer := fbp.NewComponent(
 		ctx,
-		"mapper",
-		mapperPorts,
-		&mapperTask{
-			id:      "mapper",
-			mapFunc: mapFunc,
-		},
-		errorHander,
-		logger,
-	)
-	reducerComponent := fbp.NewComponent(
-		ctx,
-		"reducer",
-		reducerPorts,
-		&reducerTask{
-			id:         "reducer",
-			reduceFunc: reduceFunc,
-		},
-		errorHander,
-		logger,
-	)
-	writerComponent := fbp.NewComponent(
-		ctx,
-		"writer",
-		writerPorts,
+		"mapperComponent",
+		writerPort,
 		&writerTask{
 			id:     "writer",
 			writer: os.Stdout,
@@ -256,52 +220,7 @@ func main() {
 		errorHander,
 		logger,
 	)
-
-	// Start the components
-	readerComponent.Stream()
-	mapperComponent.Stream()
-	reducerComponent.Stream()
-	writerComponent.Stream()
-
-	// Start the connections
-	for n, _ := range fromReaderToMapperConnections {
-		fromReaderToMapperConnections[n].Stream()
-	}
-	for n, _ := range fromMapperToReducerConnections {
-		fromMapperToReducerConnections[n].Stream()
-	}
-	for n, _ := range fromReducerToWriterConnections {
-		fromReducerToWriterConnections[n].Stream()
-	}
-
-	// At this point, all the components are wainting for ready data
-	// from its in ports, use it to execute its tasks, and write the
-	// resulting output by its out ports
-
-	// Prepare the data to be processed
-	data := []fbp.KeyGetter{
-		Data{
-			Amount:    1,
-			Timestamp: time.Now(),
-		},
-		Data{
-			Amount:    2,
-			Timestamp: time.Now().Add(-1 * time.Hour),
-		},
-		Data{
-			Amount:    3,
-			Timestamp: time.Now().Add(-25 * time.Hour),
-		},
-	}
-
-	// Send the data to be processed
-	readerPorts[0].In <- fbp.NewInformationPackage("ip1", data)
-
-	// Wait for a the process ends
-	fmt.Println("*jas* waiting for components an connections ends ...")
-	time.Sleep(2 * time.Second)
-
-	os.Exit(0)
+	writer.Stream()
 }
 
 func getPortSlice(sz int, id string) (ports []fbp.Port) {
@@ -316,48 +235,88 @@ func getPortSlice(sz int, id string) (ports []fbp.Port) {
 	return
 }
 
-func getConnectionSlice(ctx context.Context, inPorts, outPorts []fbp.Port, id string, logger *zap.Logger) (connections []fbp.Connection, err error) {
-	if len(inPorts) != len(outPorts) {
-		return nil, errors.New("there must be the same number of in and out ports")
-	}
-	connections = make([]fbp.Connection, len(inPorts))
-	for n, _ := range inPorts {
-		connections[n] = *fbp.NewConnection(
-			ctx,
-			id+"_"+fmt.Sprint(n),
-			&inPorts[n],
-			&outPorts[n],
-			logger,
-		)
-	}
+func startConnectionsFromReaderToMapper(ctx context.Context, inPort *fbp.Port, outPorts []fbp.Port, logger *zap.Logger) (connections []fbp.Connection, err error) {
+	conn := fbp.NewConnection(
+		ctx,
+		"fromReaderToMapper",
+		logger,
+	)
+	conn.StreamFanOut(inPort, outPorts)
+	return
+}
+func startConnectionsFromMapperToReducer(ctx context.Context, inPorts []fbp.Port, outPorts []fbp.Port, logger *zap.Logger) (connections []fbp.Connection, err error) {
+	conn := fbp.NewConnection(
+		ctx,
+		"fromMapperToReducer",
+		logger,
+	)
+	conn.StreamMulti(inPorts, outPorts)
+	return
+}
+func startConnectionsFromReducerToWriter(ctx context.Context, inPort []fbp.Port, outPort *fbp.Port, logger *zap.Logger) (connections []fbp.Connection, err error) {
+	conn := fbp.NewConnection(
+		ctx,
+		"fromReducerToWriter",
+		logger,
+	)
+	conn.StreamFanIn(inPort, outPort)
 	return
 }
 
-func getConnectionsFromReaderToMapper(ctx context.Context, inPort fbp.Port, outPorts []fbp.Port, id string, logger *zap.Logger) (connections []fbp.Connection, err error) {
-	connections = make([]fbp.Connection, len(outPorts))
-	for n, _ := range outPorts {
-		connections[n] = *fbp.NewConnection(
-			ctx,
-			id+"_"+fmt.Sprint(n),
-			&inPort,
-			&outPorts[n],
-			logger,
-		)
-	}
-	return
-}
+func main() {
 
-func getConnectionsFromReducerToWriter(ctx context.Context, inPorts []fbp.Port, outPort fbp.Port, id string, logger *zap.Logger) (connections []fbp.Connection, err error) {
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
-	connections = make([]fbp.Connection, len(inPorts))
-	for n, _ := range inPorts {
-		connections[n] = *fbp.NewConnection(
-			ctx,
-			id+"_"+fmt.Sprint(n),
-			&inPorts[n],
-			&outPort,
-			logger,
-		)
+	logger := zap.NewExample()
+	errorHander := fbp.NewErrorHandler(logger)
+
+	// Define ports
+	readerPort := getPortSlice(1, "readerPort")
+	reducerPorts := getPortSlice(3, "reducerPort")
+	mapperPorts := getPortSlice(3, "mapperPort")
+	writerPort := getPortSlice(1, "writerPort")
+
+	// Start components
+	startReaderComponent(ctx, &readerPort[0], errorHander, logger)
+	startMapperComponents(ctx, mapperPorts, errorHander, logger)
+	startReducerComponents(ctx, reducerPorts, errorHander, logger)
+	startWriterComponent(ctx, &writerPort[0], errorHander, logger)
+
+	// Start the connections
+	startConnectionsFromReaderToMapper(ctx, &readerPort[0], mapperPorts, logger)
+	startConnectionsFromMapperToReducer(ctx, mapperPorts, reducerPorts, logger)
+	startConnectionsFromReducerToWriter(ctx, reducerPorts, &writerPort[0], logger)
+
+	// At this point, all the components are wainting for ready data
+	// from its in ports, use it to execute its tasks, and write the
+	// resulting output by its out ports
+
+	// Prepare the data to be processed
+	data := tData{
+		Data{
+			Amount:    1,
+			Timestamp: time.Now(),
+		},
+		Data{
+			Amount:    2,
+			Timestamp: time.Now().Add(-1 * time.Hour),
+		},
+		Data{
+			Amount:    3,
+			Timestamp: time.Now().Add(-25 * time.Hour),
+		},
 	}
-	return
+
+	// Send the data packages to be processed
+	for z := 0; z < 200; z++ {
+		readerPort[0].In <- fbp.NewInformationPackage(fmt.Sprintf("package_%d", z), data)
+	}
+
+	// Wait for a the process ends
+	fmt.Println("waiting for components an connections ends ...")
+	time.Sleep(1 * time.Second)
+
+	os.Exit(0)
 }
