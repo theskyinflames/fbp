@@ -22,17 +22,6 @@ import (
 	This version doesn't implement parallelism
 */
 
-type Data struct {
-	Timestamp time.Time
-	Amount    int
-}
-
-func (d Data) Key() func() string {
-	return func() string {
-		return fmt.Sprintf("%s_%s", fmt.Sprint(d.Timestamp), d.Amount)
-	}
-}
-
 const (
 	DataKey        = "DataSetKey"
 	ToReduceMapKey = "ToReduceMapKey"
@@ -63,6 +52,12 @@ var (
 )
 
 type (
+	Data struct {
+		Timestamp time.Time
+		Amount    int
+	}
+	tData []Data
+
 	mapperTask struct {
 		id      string
 		mapFunc func([]Data) map[time.Time]int
@@ -80,25 +75,21 @@ type (
 	}
 )
 
-func (mt *mapperTask) Do(in *fbp.InformationPackage) (out *fbp.InformationPackage, err error) {
-	slice := make([]Data, in.Status.Count())
-	iterator := in.Status.Iterator()
-	c := 0
-	for {
-		data, lastItem := iterator()
-		slice[c] = data.(Data)
-		if lastItem {
-			break
-		}
-		c++
+func (tD tData) Key() func() string {
+	return func() string {
+		return fmt.Sprintf("data_%d", len(tD))
 	}
+}
 
-	toBeReduced := mt.mapFunc(slice)
+func (mt *mapperTask) Do(in *fbp.InformationPackage) (out *fbp.InformationPackage, err error) {
+
+	data, _ := in.Status.Iterator()()
+	mapped := mt.mapFunc(data.(tData))
 	out = &fbp.InformationPackage{
 		ID:     mt.id,
 		Status: &set.Set{},
 	}
-	out.Status.Add(func() string { return ToReduceMapKey }, toBeReduced)
+	out.Status.Add(func() string { return mt.id }, mapped)
 	return
 }
 
@@ -230,7 +221,7 @@ func main() {
 	// resulting output by its out ports
 
 	// Prepare the data to be processed
-	data := []fbp.KeyGetter{
+	data := tData{
 		Data{
 			Amount:    1,
 			Timestamp: time.Now(),
