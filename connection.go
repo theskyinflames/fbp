@@ -29,7 +29,7 @@ func (c *Connection) StreamSingle(from *Port, to *Port) (err error) {
 			case <-c.ctx.Done():
 				break
 			case informationPackage, ok := <-from.Out:
-				c.logger.Debug("connection received information package", zap.String("id", c.ID))
+				//c.logger.Debug("connection id received package", zap.String("id", c.ID), zap.Bool("ok", ok))
 				if !ok {
 					break
 				}
@@ -49,7 +49,7 @@ func (c *Connection) StreamFanOut(from *Port, to []Port) (err error) {
 			case <-c.ctx.Done():
 				break
 			case informationPackage, ok := <-from.Out:
-				c.logger.Debug("connection received information package", zap.String("id", c.ID))
+				//c.logger.Debug("connection fo received package", zap.String("id", c.ID), zap.Int("in", k), zap.Bool("ok", ok))
 				if !ok {
 					break
 				}
@@ -66,21 +66,21 @@ func (c *Connection) StreamFanOut(from *Port, to []Port) (err error) {
 
 func (c *Connection) StreamFanIn(from []Port, to *Port) (err error) {
 	for k, _ := range from {
-		go func() {
+		go func(k int) {
 			c.logger.Info("starting fan in connection", zap.String("id", c.ID), zap.Int("in", k))
 			for {
 				select {
 				case <-c.ctx.Done():
 					break
 				case informationPackage, ok := <-from[k].Out:
-					c.logger.Debug("connection received information package", zap.String("id", c.ID))
+					//c.logger.Debug("connection fi received package", zap.String("id", c.ID), zap.Int("in", k), zap.Bool("ok", ok))
 					if !ok {
 						break
 					}
 					to.In <- informationPackage
 				}
 			}
-		}()
+		}(k)
 	}
 	return
 }
@@ -90,21 +90,21 @@ func (c *Connection) StreamMulti(from []Port, to []Port) (err error) {
 		return errors.New("to stream a multi connection, from and out ports must be the same number of in ports than out ones")
 	}
 	for k, _ := range from {
-		go func() {
+		go func(k int) {
 			c.logger.Info("starting multi connection", zap.String("id", c.ID), zap.Int("in", k))
 			for {
 				select {
 				case <-c.ctx.Done():
 					break
 				case informationPackage, ok := <-from[k].Out:
-					c.logger.Debug("connection received information package", zap.String("id", c.ID))
+					//c.logger.Debug("connection multi received package", zap.String("id", c.ID), zap.Int("in", k), zap.Bool("ok", ok))
 					if !ok {
 						break
 					}
 					to[k].In <- informationPackage
 				}
 			}
-		}()
+		}(k)
 	}
 	return
 }

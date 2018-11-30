@@ -40,7 +40,7 @@ func (c *Component) Stream() {
 			case <-c.ctx.Done():
 				break
 			case informationPackage, ok := <-c.port.In:
-				c.logger.Debug("component received information package", zap.String("id", c.id))
+				//c.logger.Debug("component received information package", zap.String("id", c.id))
 				if !ok {
 					c.logger.Warn("in port closed", zap.String("id", c.port.ID))
 					break
