@@ -6,9 +6,11 @@ import (
 	"go.uber.org/zap"
 )
 
-type Task interface {
-	Do(in *InformationPackage) (out *InformationPackage, err error)
-}
+type (
+	Task interface {
+		Do(in *InformationPackage) (out *InformationPackage, err error)
+	}
+)
 
 func NewComponent(ctx context.Context, id string, port *Port, task Task, errorHandler *ErrorHandler, logger *zap.Logger) *Component {
 	return &Component{
