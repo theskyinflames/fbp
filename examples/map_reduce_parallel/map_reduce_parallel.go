@@ -287,7 +287,7 @@ func main() {
 	startConnectionsFromMapperToReducer(ctx, mapperPorts, reducerPorts, logger)
 	startConnectionsFromReducerToWriter(ctx, reducerPorts, &writerPort[0], logger)
 
-	// At this point, all the components are wainting for ready data
+	// At this point, all the components are wainting for reading data
 	// from its in ports, use it to execute its tasks, and write the
 	// resulting output by its out ports
 
