@@ -1,0 +1,13 @@
+# github.com/theskyinflames/set v0.0.0-20181124203833-ab0c3fa5b4d4
+github.com/theskyinflames/set
+# go.uber.org/atomic v1.2.0
+go.uber.org/atomic
+# go.uber.org/multierr v1.1.0
+go.uber.org/multierr
+# go.uber.org/zap v1.9.1
+go.uber.org/zap
+go.uber.org/zap/internal/bufferpool
+go.uber.org/zap/zapcore
+go.uber.org/zap/buffer
+go.uber.org/zap/internal/color
+go.uber.org/zap/internal/exit
