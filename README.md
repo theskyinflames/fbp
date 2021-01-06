@@ -1,3 +1,6 @@
+# THIS IS OUTDATED UNMAINTAINED PROJECT
+please visit [dynamic](https://github.com/theskyinflames/dynamic) for a *fbp* framework
+
 # fbp
 a Flow-based-programming library (https://en.wikipedia.org/wiki/Flow-based_programming)
 
